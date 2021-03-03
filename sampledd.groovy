@@ -6,28 +6,60 @@ def mimicDirectory = new File(args[0])
 def trainSize = args[1].toInteger()
 def validSize = args[2].toInteger()
 def testSize = args[3].toInteger()
+def hoursOffset = args[4].toInteger()
+
+// borrowed from https://www.baeldung.com/java-add-hours-date
+public Date addHoursToJavaUtilDate(Date date, int hours) {
+	Calendar calendar = Calendar.getInstance();
+	calendar.setTime(date);
+	calendar.add(Calendar.HOUR_OF_DAY, hours);
+	return calendar.getTime();
+}
 
 def rng = new Random(1337)
 def sample = { rn, arr -> arr[rn.nextInt(arr.size())] }
+
+
+def admissions = [:]
+def admissionKeys = []
+new File(mimicDirectory, 'ADMISSIONS.csv').splitEachLine(',') { fs ->
+  if(fs[0] == '"ROW_ID"') { return; }
+
+  // Throw away the entry if the patient died or was discharged before the given offset time ...
+  def admissionDate = new Date().parse('yyyy-MM-dd hh:mm:ss', fs[3])
+  def dischargeDate = new Date().parse('yyyy-MM-dd hh:mm:ss', fs[4])
+  def deathDate
+  if(fs[5] != '') {
+    deathDate = new Date().parse('yyyy-MM-dd hh:mm:ss', fs[5])
+  }
+  def offsetAdmission = addHoursToJavaUtilDate(admissionDate, hoursOffset)
+  if(dischargeDate <= offsetAdmission || (deathDate && deathDate <= offsetAdmission)) {
+    return;
+  }
+  
+  admissions[fs[2]] = [
+    subject: fs[1],
+    hadm: fs[2],
+    admit: fs[3],
+    disch: fs[4],
+    dod: fs[5]
+  ]
+  admissionKeys << fs[2]
+}
 
 def hasTimedTextRecord = [:]
 new File(mimicDirectory, 'NOTEEVENTS.csv').withReader { reader ->
   def csv = new CSVParser(reader, DEFAULT.withHeader())
   for(record in csv.iterator()) {
-    if(record['CHARTTIME'] != '') {
-      hasTimedTextRecord[record['HADM_ID']] = true
+    if(admissions.containsKey(record['HADM_ID']) && record['CHARTTIME'] != '') {
+      def admissionTime = new Date().parse('yyyy-MM-dd hh:mm:ss', admissions[record['HADM_ID']].admit)
+      def offsetAdmission = addHoursToJavaUtilDate(admissionTime, hoursOffset)
+      def ct = new Date().parse('yyyy-MM-dd hh:mm:ss', record['CHARTTIME'])
+      if(ct < offsetAdmission) {
+        hasTimedTextRecord[record['HADM_ID']] = true
+      }
     }
   }
-}
-
-def admissions = []
-new File(mimicDirectory, 'ADMISSIONS.csv').splitEachLine(',') { fs ->
-  if(fs[0] == '"ROW_ID"') { return; }
-  admissions << [
-    subject: fs[1],
-    hadm: fs[2],
-    dod: fs[5]
-  ]
 }
 
 println "Loaded ${admissions.size()} admissions"
@@ -40,25 +72,22 @@ def valid = [:]
 def test  = [:]
 
 while(train.size() < trainSize) {
-  def p = sample(rng, admissions)
+  def p = admissions[sample(rng, admissionKeys)]
   if(!train.containsKey(p.hadm) && hasTimedTextRecord.containsKey(p.hadm)) {
     if(p.dod == '' && trainLiveCount < (trainSize / 2)) { // something something odd number
       train[p.hadm] = p
       trainLiveCount++ 
-      println 'train count: ' + trainLiveCount
     } else if(trainDeadCount < (trainSize / 2)) {
       train[p.hadm] = p
       trainDeadCount++ 
-      println 'train dead count: ' + trainDeadCount
     }
   }
 }
 
 println "Sampled ${trainSize} training patients."
-println trainDeadCount
 
 while(valid.size() < validSize) {
-  def p = sample(rng, admissions)
+  def p = admissions[sample(rng, admissionKeys)]
   if(!train[p.hadm] && !valid[p.hadm] && hasTimedTextRecord.containsKey(p.hadm)) {
     valid[p.hadm] = p
   }
@@ -67,7 +96,7 @@ while(valid.size() < validSize) {
 println "Sampled ${validSize} validation patients."
 
 while(test.size() < testSize) {
-  def p = sample(rng, admissions)
+  def p = admissions[sample(rng, admissionKeys)]
   if(!train[p.hadm] && !valid[p.hadm] && !test[p.hadm] && hasTimedTextRecord.containsKey(p.hadm)) {
     test[p.hadm] = p
   }
@@ -75,7 +104,9 @@ while(test.size() < testSize) {
 
 println "Sampled ${testSize} validation patients."
 
-def out = train.collect { k, v -> v.collect { kk, kv -> kv }.join('\t') + '\ttrain' } + 
+def headings = [ 'subject', 'hadm id', 'admission time', 'discharge time', 'death time' ]
+def out = [ headings.join('\t') ] +
+          train.collect { k, v -> v.collect { kk, kv -> kv }.join('\t') + '\ttrain' } + 
           valid.collect { k, v -> v.collect { kk, kv -> kv }.join('\t') + '\tvalid' } + 
           test.collect { k, v -> v.collect { kkv, kv -> kv }.join('\t') + '\ttest' }
 new File('sampled_patients.tsv').text = out.join('\n')
