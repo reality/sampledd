@@ -6,7 +6,8 @@ def mimicDirectory = new File(args[0])
 def trainSize = args[1].toInteger()
 def validSize = args[2].toInteger()
 def testSize = args[3].toInteger()
-def hoursOffset = args[4].toInteger()
+def initialOffset = args[4].toInteger()
+def eventCutoff = args[5].toInteger()
 
 // borrowed from https://www.baeldung.com/java-add-hours-date
 public Date addHoursToJavaUtilDate(Date date, int hours) {
@@ -18,7 +19,6 @@ public Date addHoursToJavaUtilDate(Date date, int hours) {
 
 def rng = new Random(1337)
 def sample = { rn, arr -> arr[rn.nextInt(arr.size())] }
-
 
 def admissions = [:]
 def admissionKeys = []
@@ -32,9 +32,15 @@ new File(mimicDirectory, 'ADMISSIONS.csv').splitEachLine(',') { fs ->
   if(fs[5] != '') {
     deathDate = new Date().parse('yyyy-MM-dd hh:mm:ss', fs[5])
   }
-  def offsetAdmission = addHoursToJavaUtilDate(admissionDate, hoursOffset)
+  def offsetAdmission = addHoursToJavaUtilDate(admissionDate, initialOffset)
   if(dischargeDate <= offsetAdmission || (deathDate && deathDate <= offsetAdmission)) {
     return;
+  }
+
+  def diedBeforeEventCutoff = false
+  def offsetCutoff = addHoursToJavaUtilDate(offsetAdmission, eventCutoff)
+  if(deathDate && deathDate < offsetCutoff) {
+    diedBeforeEventCutoff = true
   }
   
   admissions[fs[2]] = [
@@ -42,7 +48,8 @@ new File(mimicDirectory, 'ADMISSIONS.csv').splitEachLine(',') { fs ->
     hadm: fs[2],
     admit: fs[3],
     disch: fs[4],
-    dod: fs[5]
+    dod: fs[5],
+    eventCutoffDeath: diedBeforeEventCutoff
   ]
   admissionKeys << fs[2]
 }
@@ -53,7 +60,7 @@ new File(mimicDirectory, 'NOTEEVENTS.csv').withReader { reader ->
   for(record in csv.iterator()) {
     if(admissions.containsKey(record['HADM_ID']) && record['CHARTTIME'] != '') {
       def admissionTime = new Date().parse('yyyy-MM-dd hh:mm:ss', admissions[record['HADM_ID']].admit)
-      def offsetAdmission = addHoursToJavaUtilDate(admissionTime, hoursOffset)
+      def offsetAdmission = addHoursToJavaUtilDate(admissionTime, initialOffset)
       def ct = new Date().parse('yyyy-MM-dd hh:mm:ss', record['CHARTTIME'])
       if(ct < offsetAdmission) {
         hasTimedTextRecord[record['HADM_ID']] = true
@@ -104,7 +111,7 @@ while(test.size() < testSize) {
 
 println "Sampled ${testSize} validation patients."
 
-def headings = [ 'subject', 'hadm id', 'admission time', 'discharge time', 'death time' ]
+def headings = [ 'subject', 'hadm id', 'admission time', 'discharge time', 'death time', 'died before event cutoff', 'set' ]
 def out = [ headings.join('\t') ] +
           train.collect { k, v -> v.collect { kk, kv -> kv }.join('\t') + '\ttrain' } + 
           valid.collect { k, v -> v.collect { kk, kv -> kv }.join('\t') + '\tvalid' } + 
