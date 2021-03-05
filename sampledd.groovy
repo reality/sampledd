@@ -81,7 +81,7 @@ def test  = [:]
 while(train.size() < trainSize) {
   def p = admissions[sample(rng, admissionKeys)]
   if(!train.containsKey(p.hadm) && hasTimedTextRecord.containsKey(p.hadm)) {
-    if(p.dod == '' && trainLiveCount < (trainSize / 2)) { // something something odd number
+    if(p.eventCutoffDeath && trainLiveCount < (trainSize / 2)) { // something something odd number
       train[p.hadm] = p
       trainLiveCount++ 
     } else if(trainDeadCount < (trainSize / 2)) {
