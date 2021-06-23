@@ -78,9 +78,27 @@ def trainLiveCount = 0
 def valid = [:]
 def test  = [:]
 
+while(valid.size() < validSize) {
+  def p = admissions[sample(rng, admissionKeys)]
+  if(!train[p.hadm] && !valid[p.hadm] && hasTimedTextRecord.containsKey(p.hadm)) {
+    valid[p.hadm] = p
+  }
+}
+
+println "Sampled ${validSize} validation patients."
+
+while(test.size() < testSize) {
+  def p = admissions[sample(rng, admissionKeys)]
+  if(!train.containsKey(p.hadm) && !valid.containsKey(p.hadm) && !test.containsKey(p.hadm) && hasTimedTextRecord.containsKey(p.hadm)) {
+    test[p.hadm] = p
+  }
+}
+
+println "Sampled ${testSize} validation patients."
+
 while(train.size() < trainSize) {
   def p = admissions[sample(rng, admissionKeys)]
-  if(!train.containsKey(p.hadm) && hasTimedTextRecord.containsKey(p.hadm)) {
+  if(!test.containsKey(p.hadm) && !valid.containsKey(p.hadm) && !train.containsKey(p.hadm) && hasTimedTextRecord.containsKey(p.hadm)) {
     if(p.eventCutoffDeath && trainLiveCount < (trainSize / 2)) { // something something odd number
       train[p.hadm] = p
       trainLiveCount++ 
@@ -93,23 +111,7 @@ while(train.size() < trainSize) {
 
 println "Sampled ${trainSize} training patients."
 
-while(valid.size() < validSize) {
-  def p = admissions[sample(rng, admissionKeys)]
-  if(!train[p.hadm] && !valid[p.hadm] && hasTimedTextRecord.containsKey(p.hadm)) {
-    valid[p.hadm] = p
-  }
-}
 
-println "Sampled ${validSize} validation patients."
-
-while(test.size() < testSize) {
-  def p = admissions[sample(rng, admissionKeys)]
-  if(!train[p.hadm] && !valid[p.hadm] && !test[p.hadm] && hasTimedTextRecord.containsKey(p.hadm)) {
-    test[p.hadm] = p
-  }
-}
-
-println "Sampled ${testSize} validation patients."
 
 def headings = [ 'subject', 'hadm id', 'admission time', 'discharge time', 'death time', 'died before event cutoff', 'set' ]
 def out = [ headings.join('\t') ] +
